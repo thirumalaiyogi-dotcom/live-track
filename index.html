@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ta">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#16a34a">
+<title>லைவ் டிராக்</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{--g:#16a34a;--gd:#15803d;--bg:#f8fafc;--card:#fff;--tx:#0f172a;--mut:#64748b;--bd:#e2e8f0;--red:#dc2626}
+  *{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,"Noto Sans Tamil",sans-serif}
+  html,body{height:100%;background:var(--bg);color:var(--tx)}
+  .screen{display:none;height:100%}
+  .screen.active{display:flex;flex-direction:column}
+  .center{justify-content:center;align-items:center;padding:20px;gap:14px;text-align:center}
+  h1{font-size:26px}
+  .sub{color:var(--mut);font-size:14px}
+  .btn{border:0;border-radius:14px;padding:14px 18px;font-size:16px;font-weight:600;cursor:pointer;width:100%;background:var(--g);color:#fff}
+  .btn:active{transform:scale(.98)}
+  .btn.out{background:#fff;color:var(--g);border:2px solid var(--g)}
+  .btn.red{background:var(--red)}
+  .btn.wa{background:#25d366}
+  .btn.sm{padding:10px 12px;font-size:14px}
+  .row{display:flex;gap:8px;width:100%}
+  input{width:100%;padding:14px;border:1.5px solid var(--bd);border-radius:12px;font-size:16px;background:#fff}
+  .box{width:100%;max-width:380px;display:flex;flex-direction:column;gap:12px}
+  #map{flex:1;min-height:0}
+  .panel{background:var(--card);border-radius:20px 20px 0 0;box-shadow:0 -4px 20px rgba(0,0,0,.12);padding:16px;display:flex;flex-direction:column;gap:10px;z-index:500}
+  .stat{display:flex;justify-content:space-between;align-items:center;font-size:14px}
+  .big{font-size:22px;font-weight:700}
+  .pill{display:inline-block;padding:4px 10px;border-radius:99px;background:#dcfce7;color:var(--gd);font-size:13px;font-weight:600}
+  .pill.warn{background:#fef3c7;color:#92400e}
+  .pill.off{background:#fee2e2;color:var(--red)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .cell{background:var(--bg);border-radius:12px;padding:10px;text-align:center}
+  .cell b{display:block;font-size:20px}
+  .cell span{font-size:12px;color:var(--mut)}
+  .link{font-size:12px;color:var(--mut);word-break:break-all;background:var(--bg);padding:8px;border-radius:8px}
+  .bike{font-size:34px;line-height:40px;text-align:center;filter:drop-shadow(0 2px 3px rgba(0,0,0,.4))}
+  .dot{width:18px;height:18px;border-radius:50%;background:#2563eb;border:3px solid #fff;box-shadow:0 0 0 6px rgba(37,99,235,.25)}
+  .gear{position:fixed;top:12px;right:12px;background:none;border:0;font-size:22px;cursor:pointer}
+</style>
+</head>
+<body>
+
+<!-- Setup -->
+<div id="setup" class="screen center">
+  <div class="box">
+    <h1>⚙️ செட்டப்</h1>
+    <p class="sub">Supabase → Project Settings → API ல இருந்து URL, anon key-ஐ பேஸ்ட் பண்ணுங்க (ஒரு தடவை மட்டும்)</p>
+    <input id="inUrl" placeholder="https://xxxx.supabase.co">
+    <input id="inKey" placeholder="anon public key">
+    <button class="btn" onclick="saveSetup()">சேமி</button>
+  </div>
+</div>
+
+<!-- Home -->
+<div id="home" class="screen center">
+  <button class="gear" onclick="resetSetup()" title="செட்டிங்ஸ்">⚙️</button>
+  <div class="box">
+    <div style="font-size:60px">🏍️</div>
+    <h1>லைவ் டிராக்</h1>
+    <p class="sub">Rapido / WhatsApp மாதிரி லைவ் லொகேஷன்</p>
+    <button class="btn" onclick="startRider()">📍 நான் ரைடர் — லொகேஷன் ஷேர் பண்ண</button>
+    <p class="sub" style="margin-top:8px">அல்லது Ride ID போட்டு டிராக் பண்ணுங்க</p>
+    <div class="row">
+      <input id="inRide" placeholder="Ride ID (எ.கா. AB12CD)" style="text-transform:uppercase">
+      <button class="btn out" style="width:auto" onclick="joinRide()">டிராக்</button>
+    </div>
+  </div>
+</div>
+
+<!-- Map app -->
+<div id="app" class="screen">
+  <div id="map"></div>
+  <div class="panel" id="panel"></div>
+</div>
+
+<script>
+// ====== விருப்பம்: இங்கேயே key போட்டா setup screen வராது ======
+const SUPABASE_URL = 'https://rilnwbvwammidueubnva.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpbG53YnZ3YW1taWR1ZXVibnZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1MzI2MDgsImV4cCI6MjEwMjEwODYwOH0.355uCI78Wzy6IKQ6Hzr4Rl6-0W0HtWWkKbg6TGbNVxc';
+
+const $ = id => document.getElementById(id);
+const ls = {get:k=>{try{return localStorage.getItem(k)}catch(e){return null}}, set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}, del:k=>{try{localStorage.removeItem(k)}catch(e){}}};
+
+let url = SUPABASE_URL || ls.get('lt_url') || '';
+let key = SUPABASE_KEY || ls.get('lt_key') || '';
+let sb, channel, map, bike, me, route, watchId, myWatch, wakeLock;
+let lastPos = null, lastSent = null, myPos = null, follow = true, mode = '';
+
+const bikeIcon = L.divIcon({className:'bike', html:'🏍️', iconSize:[40,40], iconAnchor:[20,20]});
+const meIcon   = L.divIcon({className:'', html:'<div class="dot"></div>', iconSize:[24,24], iconAnchor:[12,12]});
+
+function show(id){ document.querySelectorAll('.screen').forEach(s => s.classList.toggle('active', s.id === id)); }
+
+function init(){
+  if(!url || !key){ show('setup'); return; }
+  sb = supabase.createClient(url, key);
+  const ride = new URLSearchParams(location.search).get('ride');
+  if(ride) startTracker(ride.toUpperCase()); else show('home');
+}
+function saveSetup(){
+  const u = $('inUrl').value.trim(), k = $('inKey').value.trim();
+  if(!u || !k) return alert('ரெண்டையும் போடுங்க');
+  ls.set('lt_url', u); ls.set('lt_key', k); location.reload();
+}
+function resetSetup(){ if(confirm('Supabase key-ஐ மாற்றணுமா?')){ ls.del('lt_url'); ls.del('lt_key'); location.reload(); } }
+function joinRide(){
+  const id = $('inRide').value.trim().toUpperCase();
+  if(id) location.search = '?ride=' + id;
+}
+
+// ====== Map ======
+function initMap(){
+  show('app');
+  if(map) return;
+  map = L.map('map', {zoomControl:false}).setView([8.7139, 77.7567], 13); // Tirunelveli
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'© OpenStreetMap'}).addTo(map);
+  route = L.polyline([], {color:'#16a34a', weight:5, opacity:.7}).addTo(map);
+  map.on('dragstart', () => follow = false);
+}
+function moveBike(lat, lng){
+  const to = L.latLng(lat, lng);
+  route.addLatLng(to);
+  if(!bike){ bike = L.marker(to, {icon:bikeIcon}).addTo(map); map.setView(to, 16); return; }
+  const from = bike.getLatLng(), t0 = performance.now(), dur = 1000;
+  (function step(t){
+    const k = Math.min((t - t0) / dur, 1);
+    bike.setLatLng([from.lat + (to.lat - from.lat) * k, from.lng + (to.lng - from.lng) * k]);
+    if(k < 1) requestAnimationFrame(step);
+  })(t0);
+  if(follow) map.panTo(to);
+}
+function recenter(){ follow = true; if(bike) map.setView(bike.getLatLng(), 16); }
+
+// தூரம் (மீட்டர்) — Haversine
+function dist(a, b){
+  const R = 6371000, r = x => x * Math.PI / 180;
+  const dLat = r(b.lat - a.lat), dLng = r(b.lng - a.lng);
+  const h = Math.sin(dLat/2)**2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function setStatus(txt, cls=''){ const s = $('status'); if(s){ s.textContent = txt; s.className = 'pill ' + cls; } }
+
+// ====== Screen awake ======
+async function requestWake(){
+  try{ if('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+}
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible' && mode === 'rider' && watchId != null) requestWake();
+});
+
+// ====== RIDER ======
+function startRider(){
+  if(!navigator.geolocation) return alert('இந்த போன்ல GPS சப்போர்ட் இல்ல');
+  mode = 'rider';
+  const id = Math.random().toString(36).slice(2, 8).toUpperCase();
+  const link = location.origin + location.pathname + '?ride=' + id;
+  initMap();
+  $('panel').innerHTML = `
+    <div class="stat"><span>Ride ID: <b class="big">${id}</b></span><span id="status" class="pill warn">இணைக்கிறது...</span></div>
+    <div class="grid">
+      <div class="cell"><b id="spd">0</b><span>km/h</span></div>
+      <div class="cell"><b id="acc">–</b><span>GPS துல்லியம் (m)</span></div>
+    </div>
+    <div class="link" id="lnk">${link}</div>
+    <div class="row">
+      <button class="btn wa sm" onclick="shareWA()">WhatsApp ஷேர்</button>
+      <button class="btn out sm" onclick="copyLink()">காப்பி</button>
+    </div>
+    <div class="row">
+      <button class="btn out sm" onclick="recenter()">🎯 மையம்</button>
+      <button class="btn red sm" id="stopBtn" onclick="stopRider()">⏹ நிறுத்து</button>
+    </div>
+    <p class="sub" style="font-size:12px">⚠️ ஷேர் பண்ணும்போது ஸ்கிரீனை ஆஃப் பண்ணாதீங்க / ஆப்பை மினிமைஸ் பண்ணாதீங்க</p>`;
+  window._link = link;
+
+  channel = sb.channel('ride-' + id, {config:{broadcast:{self:false}}});
+  channel
+    .on('broadcast', {event:'hello'}, () => { if(lastPos) send(lastPos); }) // புதுசா ஜாயின் ஆனவருக்கு உடனே லொகேஷன்
+    .subscribe(st => {
+      if(st === 'SUBSCRIBED') setStatus('🟢 லைவ்');
+      else if(st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') setStatus('⚠️ இணைப்பு பிரச்சனை', 'off');
+    });
+
+  watchId = navigator.geolocation.watchPosition(onPos,
+    err => setStatus('⚠️ ' + (err.code === 1 ? 'லொகேஷன் அனுமதி வேண்டும்' : err.message), 'off'),
+    {enableHighAccuracy:true, maximumAge:2000, timeout:20000});
+  requestWake();
+}
+function onPos(p){
+  const pos = {lat:p.coords.latitude, lng:p.coords.longitude, acc:Math.round(p.coords.accuracy), spd:p.coords.speed || 0, t:Date.now()};
+  lastPos = pos;
+  moveBike(pos.lat, pos.lng);
+  $('acc').textContent = pos.acc;
+  $('spd').textContent = Math.round(pos.spd * 3.6);
+  // 10 மீட்டர் நகர்ந்தா அல்லது 15 செகண்ட் ஆனா மட்டும் அனுப்பு (பேட்டரி மிச்சம்)
+  if(!lastSent || dist(lastSent, pos) > 10 || pos.t - lastSent.t > 15000) send(pos);
+}
+function send(pos){
+  if(!channel) return;
+  channel.send({type:'broadcast', event:'loc', payload:pos});
+  lastSent = pos;
+}
+function stopRider(){
+  if(!confirm('லொகேஷன் ஷேரிங்கை நிறுத்தணுமா?')) return;
+  if(watchId != null) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+  if(channel) channel.send({type:'broadcast', event:'end', payload:{}});
+  try{ wakeLock && wakeLock.release(); }catch(e){}
+  setStatus('⏹ நிறுத்தப்பட்டது', 'off');
+  $('stopBtn').outerHTML = `<button class="btn sm" onclick="location.href=location.pathname">🏠 முகப்பு</button>`;
+}
+function shareWA(){
+  const txt = '🏍️ நான் வந்துகிட்டு இருக்கேன் — லைவ்வா பாருங்க: ' + window._link;
+  location.href = 'https://wa.me/?text=' + encodeURIComponent(txt);
+}
+function copyLink(){
+  navigator.clipboard?.writeText(window._link).then(() => alert('லிங்க் காப்பி ஆச்சு ✅'), () => prompt('காப்பி பண்ணுங்க:', window._link));
+}
+
+// ====== TRACKER (கஸ்டமர்) ======
+function startTracker(id){
+  mode = 'tracker';
+  initMap();
+  $('panel').innerHTML = `
+    <div class="stat"><span>Ride: <b class="big">${id}</b></span><span id="status" class="pill warn">ரைடருக்காக காத்திருக்கிறது...</span></div>
+    <div class="grid">
+      <div class="cell"><b id="dst">–</b><span>தூரம்</span></div>
+      <div class="cell"><b id="eta">–</b><span>வந்து சேர (தோராயம்)</span></div>
+    </div>
+    <div class="stat"><span class="sub">கடைசி அப்டேட்:</span><span id="ago" class="sub">–</span></div>
+    <div class="row">
+      <button class="btn out sm" onclick="showMe()">📍 என் இடம்</button>
+      <button class="btn out sm" onclick="recenter()">🎯 பைக்</button>
+    </div>`;
+
+  channel = sb.channel('ride-' + id, {config:{broadcast:{self:false}}});
+  channel
+    .on('broadcast', {event:'loc'}, ({payload}) => {
+      lastPos = payload;
+      moveBike(payload.lat, payload.lng);
+      setStatus('🟢 லைவ்');
+      updateInfo();
+    })
+    .on('broadcast', {event:'end'}, () => setStatus('⏹ ரைடர் ஷேரிங்கை நிறுத்திவிட்டார்', 'off'))
+    .subscribe(st => {
+      if(st === 'SUBSCRIBED') channel.send({type:'broadcast', event:'hello', payload:{}});
+      else if(st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') setStatus('⚠️ இணைப்பு பிரச்சனை', 'off');
+    });
+  setInterval(updateAgo, 1000);
+}
+function showMe(){
+  if(!navigator.geolocation) return alert('GPS சப்போர்ட் இல்ல');
+  if(myWatch != null){ if(me) map.setView(me.getLatLng(), 16); return; }
+  myWatch = navigator.geolocation.watchPosition(p => {
+    myPos = {lat:p.coords.latitude, lng:p.coords.longitude};
+    if(!me){ me = L.marker([myPos.lat, myPos.lng], {icon:meIcon}).addTo(map); fitBoth(); }
+    else me.setLatLng([myPos.lat, myPos.lng]);
+    updateInfo();
+  }, err => alert('லொகேஷன் கிடைக்கல: ' + err.message), {enableHighAccuracy:true});
+}
+function fitBoth(){
+  follow = false;
+  if(bike && me) map.fitBounds(L.latLngBounds([bike.getLatLng(), me.getLatLng()]).pad(0.3));
+  else if(me) map.setView(me.getLatLng(), 16);
+}
+function updateInfo(){
+  if(!lastPos || !myPos) return;
+  const d = dist(lastPos, myPos);
+  $('dst').textContent = d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km';
+  const speed = lastPos.spd > 2 ? lastPos.spd : 7; // நின்னா ~25 km/h ன்னு எடுத்துக்கும்
+  const min = Math.max(1, Math.round(d * 1.3 / speed / 60)); // 1.3 = ரோடு வளைவுக்கு
+  $('eta').textContent = d < 50 ? 'வந்தாச்சு!' : min + ' நிமி';
+}
+function updateAgo(){
+  if(!lastPos) return;
+  const s = Math.round((Date.now() - lastPos.t) / 1000);
+  $('ago').textContent = s < 60 ? s + ' செகண்ட் முன்' : Math.round(s / 60) + ' நிமிடம் முன்';
+  if(s > 60 && $('status').textContent === '🟢 லைவ்') setStatus('🟡 சிக்னல் இல்ல', 'warn');
+}
+
+init();
+</script>
+</body>
+</html>
